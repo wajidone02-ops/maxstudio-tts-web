@@ -1,0 +1,14 @@
+local_settings.py
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+maxstudio-web/
+
+uploads/
+output/
+downloads/
+
+*.log
+.DS_Store

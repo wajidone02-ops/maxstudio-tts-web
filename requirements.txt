@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+aiohttp
+certifi
+pydantic
+bcrypt
+python-multipart
+zendriver

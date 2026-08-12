@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MAX Studio — TTS</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <div class="brand">MAX Studio — TTS</div>
+  <div class="header-right">
+    <div id="userInfo" class="user-info hidden">
+      <span id="userEmail" class="user-email"></span>
+    </div>
+    <button id="logoutBtn" class="logout-btn hidden" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<!-- Login / Register overlay -->
+<div id="authOverlay" class="auth-overlay">
+  <div class="auth-box">
+    <div class="brand" style="text-align:center;margin-bottom:14px;">MAX Studio — TTS</div>
+    <div class="auth-tabs">
+      <button id="tabLogin" class="auth-tab active" onclick="switchAuthTab('login')">Login</button>
+      <button id="tabRegister" class="auth-tab" onclick="switchAuthTab('register')">Register</button>
+    </div>
+
+    <input id="authEmail" type="email" placeholder="Login email" />
+    <input id="authPassword" type="password" placeholder="Login password" />
+
+    <div id="registerExtra" class="hidden">
+      <div class="divider">HeyGen Account</div>
+      <input id="hgEmail" type="email" placeholder="HeyGen email" />
+      <input id="hgPassword" type="password" placeholder="HeyGen password" />
+    </div>
+
+    <button id="authSubmit" onclick="submitAuth()">Login</button>
+    <p id="authMsg" class="hint" style="margin-top:12px;"></p>
+  </div>
+</div>
+
+<main id="mainApp" class="hidden">
+
+  <!-- Usage -->
+  <section class="card">
+    <h2>Aaj ka Usage</h2>
+    <div class="usage-bar-track">
+      <div id="usageBarFill" class="usage-bar-fill"></div>
+    </div>
+    <p id="usageText" class="hint" style="margin-top:8px;margin-bottom:0;"></p>
+  </section>
+
+  <!-- Voices -->
+  <section class="card">
+    <h2>Voices <button class="secondary small" onclick="loadVoices()">↻ Refresh</button></h2>
+    <div id="voiceList" class="voice-list"></div>
+    <button onclick="openCloneModal()">+ Naya Voice Clone Karo</button>
+  </section>
+
+  <!-- Generate -->
+  <section class="card">
+    <h2>Generate Speech</h2>
+    <select id="voiceSelect"></select>
+    <textarea id="genText" placeholder="Text yahan likho..." rows="8"></textarea>
+
+    <label class="toggle-row">
+      <input type="checkbox" id="enhancedToggle" />
+      <span>Enhanced Delivery <span class="hint-inline">(zyada expressive, thoda zyada time lagega)</span></span>
+    </label>
+
+    <button id="generateBtn" onclick="doGenerate()">Generate</button>
+    <p id="generateMsg" class="hint"></p>
+  </section>
+
+  <!-- Job history -->
+  <section class="card">
+    <h2>Aapki Requests <button class="secondary small" onclick="loadJobs()">↻ Refresh</button></h2>
+    <div id="jobsList" class="jobs-list"></div>
+  </section>
+
+</main>
+
+<!-- Clone Voice Modal -->
+<div id="cloneModal" class="modal hidden">
+  <div class="modal-box">
+    <h3>Naya Voice Clone Karo</h3>
+    <input id="cloneName" type="text" placeholder="Voice ka naam" />
+    <label class="file-label">Audio sample
+      <input id="cloneAudio" type="file" accept="audio/*" />
+    </label>
+    <div id="cloneProgress" class="progress hidden"></div>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal('cloneModal')">Cancel</button>
+      <button id="cloneSubmitBtn" onclick="submitClone()">Clone</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

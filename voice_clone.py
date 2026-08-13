@@ -89,6 +89,12 @@ async def clone_voice_from_audio(
     if not voice_id:
         raise ApiError("Voice clone ready hone ka timeout ho gaya (5 min).")
 
+    # HeyGen ko thoda "settle time" do — voice_id confirm hona iska matlab
+    # nahi ki backend pe engine-processing bhi turant poori ho chuki hai.
+    # (User-observed pattern: turant preview maangne pe transient fetch-fail.)
+    await _status("Voice ready ho rahi hai (thoda wait)...")
+    await asyncio.sleep(5)
+
     # Step 5: available engines list nikaalo (HeyGen HAR se confirmed:
     # e.g. ["elevenLabsV3", "fish", "elevenLabs"] — dynamic ho sakti hai)
     await _status("Voice engines fetch kar raha hoon...")
@@ -127,7 +133,7 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
     import base64
 
     last_error = None
-    for attempt in range(2):  # 1 try + 1 retry
+    for attempt in range(3):  # 1 try + 2 retries, escalating delay
         try:
             result = await browser_fetch(
                 page, "POST", "/v2/online/voice.stream_preview",
@@ -158,8 +164,8 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
             return b"".join(audio_parts)
         except Exception as e:
             last_error = e
-            if attempt == 0:
-                await asyncio.sleep(3)
+            if attempt < 2:
+                await asyncio.sleep(3 + attempt * 2)  # 3s, phir 5s
                 continue
             raise last_error
 

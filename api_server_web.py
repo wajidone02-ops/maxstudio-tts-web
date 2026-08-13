@@ -12,9 +12,11 @@ Endpoints:
 NOTE: SERVICE_ROLE key yahan seedha hai kyunki ye sirf VPS (server-side) pe
 chalta hai, kabhi client ko nahi milta — jaisa render_worker.py mein hai.
 """
+import asyncio
 import json
 import secrets
 import ssl
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,11 +35,42 @@ from local_settings import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY as SERVICE_RO
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+
+@app.on_event("startup")
+async def _start_cleanup_task():
+    asyncio.create_task(_cleanup_idle_clone_sessions())
+
+
+async def _cleanup_idle_clone_sessions():
+    """Har 60s check karta hai — agar koi clone-session CLONE_SESSION_IDLE_TIMEOUT
+    se zyada idle hai (user modal band kar gaya bina finalize kiye), use band
+    kar deta hai. Warna aisi sessions hamesha ke liye khuli reh jaayengi."""
+    while True:
+        await asyncio.sleep(60)
+        now = time.time()
+        stale = [vid for vid, info in ACTIVE_CLONE_SESSIONS.items()
+                 if now - info["last_used"] > CLONE_SESSION_IDLE_TIMEOUT]
+        for vid in stale:
+            info = ACTIVE_CLONE_SESSIONS.pop(vid, None)
+            if info:
+                try:
+                    await info["session"].stop()
+                except Exception:
+                    pass
+
 UPLOADS_DIR = Path("/root/maxstudio-web/uploads")
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Voice-clone progress track karne ke liye (task_id -> status), jaisa desktop app mein tha
 CLONE_TASKS: dict = {}
+
+# Ek clone-flow (submit -> preview clicks -> finalize) ke liye EK hi browser
+# session reuse hoti hai (voice_id se key) — har Play-click pe naya Chrome
+# kholna resource-wasteful hai. Session tab tak zinda rehti hai jab tak user
+# finalize na kare ya CLONE_SESSION_IDLE_TIMEOUT tak idle na reh jaaye
+# (abandoned modal safety-net).
+ACTIVE_CLONE_SESSIONS: dict = {}   # voice_id -> {"session":..., "page":..., "last_used": float}
+CLONE_SESSION_IDLE_TIMEOUT = 300   # 5 min
 
 _SSL = ssl.create_default_context(cafile=certifi.where())
 RESET_INTERVAL_SECONDS = 24 * 3600
@@ -331,14 +364,20 @@ async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, 
             page, audio_path, name, remove_background_noise=remove_background, status_cb=status_cb
         )
 
+        # Session ZINDA rakho — Play-clicks aur finalize isi ko reuse karenge
+        # (naya Chrome baar-baar kholna resource-wasteful hai)
+        ACTIVE_CLONE_SESSIONS[result["voice_id"]] = {
+            "session": session, "page": page, "last_used": time.time(),
+        }
+
         CLONE_TASKS[task_id]["status"] = "awaiting_engine_choice"
         CLONE_TASKS[task_id]["result"] = {"voice_id": result["voice_id"], "engines": result["engines"], "name": name}
     except Exception as e:
         CLONE_TASKS[task_id]["status"] = "failed"
         CLONE_TASKS[task_id]["error"] = str(e)
-    finally:
         if session:
-            await session.stop()
+            await session.stop()   # sirf error pe band karo — success pe zinda rakhni hai
+    finally:
         Path(audio_path).unlink(missing_ok=True)
 
 
@@ -358,11 +397,26 @@ class PreviewBody(BaseModel):
 
 @app.post("/api/voices/preview")
 async def api_voices_preview(body: PreviewBody):
-    """Phase B — kisi ek engine ka preview audio le aata hai (base64 data-URL)."""
+    """Phase B — kisi ek engine ka preview audio le aata hai (base64 data-URL).
+    Active clone-session reuse karta hai agar available ho (fast) — warna
+    fallback ek-baar-ka session banata hai (safety-net, agar session pehle
+    hi cleanup ho chuki ho)."""
     user = await get_user_by_token(body.token)
     if not user or not user.get("heygen_cookie"):
         return {"ok": False, "error": "Session invalid."}
 
+    active = ACTIVE_CLONE_SESSIONS.get(body.voice_id)
+    if active:
+        active["last_used"] = time.time()
+        try:
+            audio_bytes = await fetch_voice_preview_bytes(active["page"], body.voice_id, body.voice_engine)
+            import base64
+            data_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode()
+            return {"ok": True, "audio_data_url": data_url}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # Fallback — active session nahi mili (rare), ek-baar-ka session banao
     session = None
     try:
         session = VpsBrowserSession(user["heygen_cookie"])
@@ -390,17 +444,23 @@ class FinalizeBody(BaseModel):
 
 @app.post("/api/voices/finalize")
 async def api_voices_finalize(body: FinalizeBody):
-    """Phase C — user ka chosen engine confirm karta hai aur voice ko DB mein save karta hai."""
+    """Phase C — user ka chosen engine confirm karta hai aur voice ko DB mein
+    save karta hai. Active session ho to reuse karke, kaam poora hote hi
+    band kar deta hai (ab is voice_id ke liye session ki zaroorat nahi)."""
     user = await get_user_by_token(body.token)
     if not user or not user.get("heygen_cookie"):
         return {"ok": False, "error": "Session invalid."}
 
-    session = None
+    active = ACTIVE_CLONE_SESSIONS.pop(body.voice_id, None)  # pop = turant list se hata do
+    session = active["session"] if active else None
+    page = active["page"] if active else None
+
     try:
-        session = VpsBrowserSession(user["heygen_cookie"])
-        page = await session.start()
-        if not await is_logged_in(page):
-            return {"ok": False, "error": "HeyGen session expire ho gayi."}
+        if not page:
+            session = VpsBrowserSession(user["heygen_cookie"])
+            page = await session.start()
+            if not await is_logged_in(page):
+                return {"ok": False, "error": "HeyGen session expire ho gayi."}
 
         await finalize_voice_clone(page, body.voice_id, body.voice_engine)
 
@@ -413,4 +473,4 @@ async def api_voices_finalize(body: FinalizeBody):
         return {"ok": False, "error": str(e)}
     finally:
         if session:
-            await session.stop()
+            await session.stop()   # kaam poora — ab session ki zaroorat nahi

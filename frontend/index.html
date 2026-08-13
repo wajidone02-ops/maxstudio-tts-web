@@ -90,7 +90,12 @@
     <label class="file-label">Audio sample
       <input id="cloneAudio" type="file" accept="audio/*" />
     </label>
+    <label class="toggle-row">
+      <input type="checkbox" id="cloneRemoveBg" checked />
+      <span>Remove background sound</span>
+    </label>
     <div id="cloneProgress" class="progress hidden"></div>
+    <div id="engineChoice" class="hidden"></div>
     <div class="modal-actions">
       <button class="secondary" onclick="closeModal('cloneModal')">Cancel</button>
       <button id="cloneSubmitBtn" onclick="submitClone()">Clone</button>

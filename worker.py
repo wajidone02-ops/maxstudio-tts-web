@@ -19,6 +19,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import aiohttp
 import certifi
@@ -249,9 +250,16 @@ async def main_loop():
             try:
                 cutoff = datetime.now(timezone.utc).timestamp() - STALE_THRESHOLD_MIN * 60
                 cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+                # URL-encode zaroori hai — 'cutoff_iso' mein '+00:00' hota hai,
+                # aur bina encode kiye '+' URL mein space ban jaata hai
+                # (jo Postgres timestamp parse fail kar deta hai). Yehi bug
+                # tha jiski wajah se stale-job recovery kabhi kaam nahi kar
+                # raha tha — atki hui jobs hamesha ke liye 'processing' mein
+                # phasi reh jaati thi.
+                cutoff_iso_encoded = quote(cutoff_iso, safe="")
                 await _rest(
                     "PATCH",
-                    f"tts_jobs?status=eq.processing&created_at=lt.{cutoff_iso}",
+                    f"tts_jobs?status=eq.processing&created_at=lt.{cutoff_iso_encoded}",
                     body={"status": "pending"},
                     prefer="return=minimal",
                 )

@@ -33,7 +33,8 @@ MAX_CONCURRENT = 4
 POLL_INTERVAL = 3          # seconds — free slot ho to kitni jaldi naya job dhoonde
 STALE_RECOVERY_INTERVAL = 600   # 10 min — proven pattern (render_worker.py se)
 STALE_THRESHOLD_MIN = 30
-OUTPUT_DIR = Path("/root/maxstudio-web/output")
+JOB_TIMEOUT_SECONDS = 300  # 5 min — isse zyada koi job na le (hang-protection)
+OUTPUT_DIR = Path("/var/www/tts-downloads")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Placeholder video_id — TTS endpoint ise validate nahi karta (confirmed
@@ -159,6 +160,23 @@ async def refund_chars(user_id: str, char_count: int):
 # ─── Job processing ───────────────────────────────────────────────────────
 
 async def process_job(job: dict):
+    job_id = job["id"]
+    user_id = job["user_id"]
+    try:
+        # POORE job (browser start, login-check, generation) pe hard timeout —
+        # taaki agar kabhi HeyGen session/cookie ki wajah se page.get() ya
+        # login-check kahin HANG ho jaaye (na error, na success), job hamesha
+        # ke liye 'processing' mein na phansi rahe aur worker ka ek slot
+        # permanently block na ho. TIMEOUT_SECONDS se zyada lene wali koi bhi
+        # job automatically 'failed' ho jaayegi, agla job free slot le lega.
+        await asyncio.wait_for(_process_job_inner(job), timeout=JOB_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        print(f"[timeout] job {job_id} — {JOB_TIMEOUT_SECONDS}s se zyada le raha tha, fail maar diya")
+        await mark_failed(job_id, f"Timeout — {JOB_TIMEOUT_SECONDS}s mein complete nahi hui (HeyGen session hang ho sakta hai)")
+        await refund_chars(user_id, job.get("char_count", 0))
+
+
+async def _process_job_inner(job: dict):
     job_id = job["id"]
     user_id = job["user_id"]
     text = job["text"]

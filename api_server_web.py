@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from browser_session_vps import VpsBrowserSession, is_logged_in
-from voice_clone import clone_voice_from_audio
+from voice_clone import clone_voice_from_audio, fetch_voice_preview_bytes, finalize_voice_clone
 from local_settings import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY as SERVICE_ROLE_KEY
 
 app = FastAPI()
@@ -291,7 +291,10 @@ async def api_list_voices(token: str):
 
 
 @app.post("/api/voices/clone")
-async def api_voices_clone(token: str = Form(...), name: str = Form(...), audio: UploadFile = File(...)):
+async def api_voices_clone(
+    token: str = Form(...), name: str = Form(...), audio: UploadFile = File(...),
+    remove_background: bool = Form(True),
+):
     user = await get_user_by_token(token)
     if not user:
         return {"ok": False, "error": "Session invalid, dobara login karo."}
@@ -308,11 +311,11 @@ async def api_voices_clone(token: str = Form(...), name: str = Form(...), audio:
         f.write(await audio.read())
 
     import asyncio
-    asyncio.create_task(_run_clone(task_id, user["id"], user["heygen_cookie"], name, str(audio_path)))
+    asyncio.create_task(_run_clone(task_id, user["id"], user["heygen_cookie"], name, str(audio_path), remove_background))
     return {"ok": True, "task_id": task_id}
 
 
-async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, audio_path: str):
+async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, audio_path: str, remove_background: bool):
     async def status_cb(msg):
         CLONE_TASKS[task_id]["messages"].append(msg)
 
@@ -323,14 +326,13 @@ async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, 
         if not await is_logged_in(page):
             raise RuntimeError("HeyGen session expire ho gayi — admin se dobara connect karwao.")
 
-        voice_id = await clone_voice_from_audio(page, audio_path, name, status_cb=status_cb)
+        # Phase A only — engine finalize nahi hota yahan, user preview sun ke choose karega
+        result = await clone_voice_from_audio(
+            page, audio_path, name, remove_background_noise=remove_background, status_cb=status_cb
+        )
 
-        await _rest("POST", "tts_voices", body={
-            "user_id": user_id, "name": name, "voice_id": voice_id,
-        }, prefer="return=minimal")
-
-        CLONE_TASKS[task_id]["status"] = "done"
-        CLONE_TASKS[task_id]["result"] = {"voice_id": voice_id, "name": name}
+        CLONE_TASKS[task_id]["status"] = "awaiting_engine_choice"
+        CLONE_TASKS[task_id]["result"] = {"voice_id": result["voice_id"], "engines": result["engines"], "name": name}
     except Exception as e:
         CLONE_TASKS[task_id]["status"] = "failed"
         CLONE_TASKS[task_id]["error"] = str(e)
@@ -346,3 +348,69 @@ async def api_voices_clone_status(task_id: str):
     if not task:
         return {"ok": False, "error": "task not found"}
     return {"ok": True, **task}
+
+
+class PreviewBody(BaseModel):
+    token: str
+    voice_id: str
+    voice_engine: str
+
+
+@app.post("/api/voices/preview")
+async def api_voices_preview(body: PreviewBody):
+    """Phase B — kisi ek engine ka preview audio le aata hai (base64 data-URL)."""
+    user = await get_user_by_token(body.token)
+    if not user or not user.get("heygen_cookie"):
+        return {"ok": False, "error": "Session invalid."}
+
+    session = None
+    try:
+        session = VpsBrowserSession(user["heygen_cookie"])
+        page = await session.start()
+        if not await is_logged_in(page):
+            return {"ok": False, "error": "HeyGen session expire ho gayi."}
+
+        audio_bytes = await fetch_voice_preview_bytes(page, body.voice_id, body.voice_engine)
+        import base64
+        data_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode()
+        return {"ok": True, "audio_data_url": data_url}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        if session:
+            await session.stop()
+
+
+class FinalizeBody(BaseModel):
+    token: str
+    voice_id: str
+    voice_engine: str
+    name: str
+
+
+@app.post("/api/voices/finalize")
+async def api_voices_finalize(body: FinalizeBody):
+    """Phase C — user ka chosen engine confirm karta hai aur voice ko DB mein save karta hai."""
+    user = await get_user_by_token(body.token)
+    if not user or not user.get("heygen_cookie"):
+        return {"ok": False, "error": "Session invalid."}
+
+    session = None
+    try:
+        session = VpsBrowserSession(user["heygen_cookie"])
+        page = await session.start()
+        if not await is_logged_in(page):
+            return {"ok": False, "error": "HeyGen session expire ho gayi."}
+
+        await finalize_voice_clone(page, body.voice_id, body.voice_engine)
+
+        await _rest("POST", "tts_voices", body={
+            "user_id": user["id"], "name": body.name, "voice_id": body.voice_id,
+        }, prefer="return=minimal")
+
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        if session:
+            await session.stop()

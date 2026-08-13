@@ -32,7 +32,7 @@ MAX_CONCURRENT = 4
 POLL_INTERVAL = 3          # seconds — free slot ho to kitni jaldi naya job dhoonde
 STALE_RECOVERY_INTERVAL = 600   # 10 min — proven pattern (render_worker.py se)
 STALE_THRESHOLD_MIN = 30
-OUTPUT_DIR = Path("/root/maxstudio-web/output")
+OUTPUT_DIR = Path("/var/www/tts-downloads")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Placeholder video_id — TTS endpoint ise validate nahi karta (confirmed

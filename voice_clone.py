@@ -116,39 +116,52 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
     fish ~3-4) — isliye fixed count assume nahi karna. Har line ka audio_bytes
     ALAG-ALAG decode karke append karo (concatenate-then-decode NAHI —
     base64 padding chunk-boundary pe galat ban sakti hai). Khali audio_bytes
-    ("") skip karo. sequence_number == -1 wali line final marker hai (usme
-    audio_bytes khali hota hai, sirf audio_url — jo hum ignore kar sakte hain
-    kyunki humare paas already poore decoded bytes hain).
+    ("") skip karo. sequence_number == -1 wali line final marker hai.
+
+    RETRY: zendriver kabhi-kabhi HeyGen page ki apni unrelated analytics
+    exception (posthog-recorder.js "Failed to fetch") leak kar deta hai jaise
+    ye humari hi request ki error ho — same known pattern jo HeyGen-video
+    project ke render_worker mein pehle diagnose hua tha. Ek baar 3s delay ke
+    saath retry karke ye transient false-failures absorb karte hain.
     """
     import base64
 
-    result = await browser_fetch(
-        page, "POST", "/v2/online/voice.stream_preview",
-        json_body={"voice_id": voice_id, "language": language, "voice_engine": voice_engine},
-    )
-    text_body = result.get("raw", "") if isinstance(result, dict) else ""
-
-    audio_parts = []
-    for line in text_body.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
+    last_error = None
+    for attempt in range(2):  # 1 try + 1 retry
         try:
-            chunk = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+            result = await browser_fetch(
+                page, "POST", "/v2/online/voice.stream_preview",
+                json_body={"voice_id": voice_id, "language": language, "voice_engine": voice_engine},
+            )
+            text_body = result.get("raw", "") if isinstance(result, dict) else ""
 
-        b64 = chunk.get("audio_bytes")
-        if b64:  # khali string ("") skip
-            audio_parts.append(base64.b64decode(b64))
+            audio_parts = []
+            for line in text_body.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-        if chunk.get("sequence_number") == -1:
-            break  # final marker — stream khatam
+                b64 = chunk.get("audio_bytes")
+                if b64:
+                    audio_parts.append(base64.b64decode(b64))
 
-    if not audio_parts:
-        raise ApiError(f"Preview response mein audio_bytes nahi mila: {text_body[:300]}")
+                if chunk.get("sequence_number") == -1:
+                    break
 
-    return b"".join(audio_parts)
+            if not audio_parts:
+                raise ApiError(f"Preview response mein audio_bytes nahi mila: {text_body[:300]}")
+
+            return b"".join(audio_parts)
+        except Exception as e:
+            last_error = e
+            if attempt == 0:
+                await asyncio.sleep(3)
+                continue
+            raise last_error
 
 
 async def finalize_voice_clone(page, voice_id: str, voice_engine: str):

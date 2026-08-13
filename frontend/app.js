@@ -258,16 +258,26 @@ function renderEngineChoice(result) {
   box.classList.remove("hidden");
   box.innerHTML = `
     <p class="hint" style="margin-top:10px;">Ek engine choose karo:</p>
-    ${result.engines.map((eng) => `
+    ${result.engines.map((eng, i) => `
       <div class="engine-row" data-engine="${eng}">
         <span class="engine-name">${eng}</span>
-        <button class="small" onclick="finalizeVoice('${result.voice_id}','${eng}','${result.name}')">Use this voice</button>
+        <button class="small" id="finalizeBtn_${i}" onclick="finalizeVoice('${result.voice_id}','${eng}','${result.name}', ${i}, ${result.engines.length})">Use this voice</button>
       </div>
     `).join("")}
   `;
 }
 
-async function finalizeVoice(voiceId, engine, name) {
+async function finalizeVoice(voiceId, engine, name, clickedIndex, totalCount) {
+  // Jis button pe click hua sirf usi pe "Saving..." — baaki SAARE turant
+  // disable, taaki 2 second ki loading-window mein koi aur engine na choose
+  // ho sake (race-condition fix).
+  for (let i = 0; i < totalCount; i++) {
+    const btn = document.getElementById(`finalizeBtn_${i}`);
+    if (!btn) continue;
+    btn.disabled = true;
+    if (i === clickedIndex) btn.textContent = "Saving...";
+  }
+
   try {
     const res = await fetch(`${API}/voices/finalize`, {
       method: "POST",
@@ -275,11 +285,27 @@ async function finalizeVoice(voiceId, engine, name) {
       body: JSON.stringify({ token: TOKEN, voice_id: voiceId, voice_engine: engine, name }),
     });
     const data = await res.json();
-    if (!data.ok) { alert(data.error || "Save nahi ho paya."); return; }
+    if (!data.ok) {
+      alert(data.error || "Save nahi ho paya.");
+      // Fail hua to sab wapas enable karo, dobara try kar sake
+      for (let i = 0; i < totalCount; i++) {
+        const btn = document.getElementById(`finalizeBtn_${i}`);
+        if (!btn) continue;
+        btn.disabled = false;
+        if (i === clickedIndex) btn.textContent = "Use this voice";
+      }
+      return;
+    }
     await loadVoices();
     closeModal("cloneModal");
   } catch (e) {
     alert("Server se connect nahi ho paya.");
+    for (let i = 0; i < totalCount; i++) {
+      const btn = document.getElementById(`finalizeBtn_${i}`);
+      if (!btn) continue;
+      btn.disabled = false;
+      if (i === clickedIndex) btn.textContent = "Use this voice";
+    }
   }
 }
 

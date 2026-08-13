@@ -180,8 +180,11 @@ function openCloneModal() {
   document.getElementById("cloneAudio").value = "";
   document.getElementById("cloneProgress").classList.add("hidden");
   document.getElementById("cloneProgress").innerHTML = "";
+  document.getElementById("engineChoice").classList.add("hidden");
+  document.getElementById("engineChoice").innerHTML = "";
   const btn = document.getElementById("cloneSubmitBtn");
   btn.disabled = false;
+  btn.classList.remove("hidden");
   btn.textContent = "Clone";
   document.getElementById("cloneModal").classList.remove("hidden");
 }
@@ -202,6 +205,7 @@ async function submitClone() {
   form.append("token", TOKEN);
   form.append("name", name);
   form.append("audio", audio);
+  form.append("remove_background", document.getElementById("cloneRemoveBg").checked);
 
   btn.disabled = true;
   btn.textContent = "Cloning...";
@@ -234,10 +238,10 @@ async function pollCloneProgress(taskId, progressEl, btn) {
     progressEl.scrollTop = progressEl.scrollHeight;
   }
 
-  if (data.status === "done") {
-    progressEl.innerHTML += `<div>✓ Voice ready!</div>`;
-    await loadVoices();
-    setTimeout(() => closeModal("cloneModal"), 1200);
+  if (data.status === "awaiting_engine_choice") {
+    progressEl.innerHTML += `<div>✓ Clone ban gayi — ab ek engine choose karo.</div>`;
+    btn.classList.add("hidden");
+    renderEngineChoice(data.result);
     return;
   }
   if (data.status === "failed") {
@@ -247,6 +251,59 @@ async function pollCloneProgress(taskId, progressEl, btn) {
     return;
   }
   setTimeout(() => pollCloneProgress(taskId, progressEl, btn), 2000);
+}
+
+function renderEngineChoice(result) {
+  const box = document.getElementById("engineChoice");
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <p class="hint" style="margin-top:10px;">Engine sun ke best wala choose karo:</p>
+    ${result.engines.map((eng, i) => `
+      <div class="engine-row" data-engine="${eng}">
+        <button class="secondary small" onclick="previewEngine('${result.voice_id}','${eng}', this)">▶ Play</button>
+        <span class="engine-name">${eng}</span>
+        <button class="small" onclick="finalizeVoice('${result.voice_id}','${eng}','${result.name}')">Use this voice</button>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function previewEngine(voiceId, engine, btnEl) {
+  btnEl.disabled = true;
+  const original = btnEl.textContent;
+  btnEl.textContent = "Loading...";
+  try {
+    const res = await fetch(`${API}/voices/preview`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: TOKEN, voice_id: voiceId, voice_engine: engine }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || "Preview fail ho gaya."); return; }
+    const audio = new Audio(data.audio_data_url);
+    audio.play();
+  } catch (e) {
+    alert("Preview load nahi ho paya.");
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = original;
+  }
+}
+
+async function finalizeVoice(voiceId, engine, name) {
+  try {
+    const res = await fetch(`${API}/voices/finalize`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: TOKEN, voice_id: voiceId, voice_engine: engine, name }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || "Save nahi ho paya."); return; }
+    await loadVoices();
+    closeModal("cloneModal");
+  } catch (e) {
+    alert("Server se connect nahi ho paya.");
+  }
 }
 
 // ─── Generate ───────────────────────────────────────────────────────────

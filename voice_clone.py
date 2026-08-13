@@ -132,8 +132,11 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
     """
     import base64
 
+    # HAR-verified (real HeyGen usage): stream_preview khud 6-18 seconds le
+    # sakta hai. Isliye retries mein kaafi patience rakhni zaroori hai —
+    # kam wait se genuine slow calls ko bhi "fail" maan liya jaata tha.
     last_error = None
-    for attempt in range(3):  # 1 try + 2 retries, escalating delay
+    for attempt in range(4):  # 1 try + 3 retries
         try:
             result = await browser_fetch(
                 page, "POST", "/v2/online/voice.stream_preview",
@@ -164,8 +167,8 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
             return b"".join(audio_parts)
         except Exception as e:
             last_error = e
-            if attempt < 2:
-                await asyncio.sleep(3 + attempt * 2)  # 3s, phir 5s
+            if attempt < 3:
+                await asyncio.sleep(5 + attempt * 3)  # 5s, 8s, 11s
                 continue
             raise last_error
 

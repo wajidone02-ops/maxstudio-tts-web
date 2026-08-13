@@ -32,7 +32,7 @@ MAX_CONCURRENT = 4
 POLL_INTERVAL = 3          # seconds — free slot ho to kitni jaldi naya job dhoonde
 STALE_RECOVERY_INTERVAL = 600   # 10 min — proven pattern (render_worker.py se)
 STALE_THRESHOLD_MIN = 30
-OUTPUT_DIR = Path("/var/www/tts-downloads")
+OUTPUT_DIR = Path("/root/maxstudio-web/output")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Placeholder video_id — TTS endpoint ise validate nahi karta (confirmed
@@ -163,6 +163,7 @@ async def process_job(job: dict):
     text = job["text"]
     voice_id = job["voice_id"]
     enhanced = job.get("enhanced", False)
+    director_style = job.get("director_style")
 
     session = None
     try:
@@ -178,7 +179,7 @@ async def process_job(job: dict):
 
         # Enhanced ho to poore text ko chunk se PEHLE enhance karo (behtar context)
         working_text = text
-        if enhanced:
+        if enhanced and not director_style:
             working_text = await enhance_script_text(page, text, PLACEHOLDER_VIDEO_ID)
 
         chunks = split_into_chunks(working_text)
@@ -192,7 +193,8 @@ async def process_job(job: dict):
 
             tts_result = await generate_tts_audio(
                 page, piece, voice_id, PLACEHOLDER_VIDEO_ID, script_id,
-                previous_text=prev_text, next_text=next_text, enhanced=enhanced,
+                previous_text=prev_text, next_text=next_text,
+                enhanced=(enhanced and not director_style), director_style=director_style,
             )
             fname = OUTPUT_DIR / f"{job_id}_part{i + 1}.wav"
             await _download(tts_result["url"], fname)

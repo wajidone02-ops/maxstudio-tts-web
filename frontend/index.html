@@ -66,9 +66,30 @@
     <textarea id="genText" placeholder="Text yahan likho..." rows="8"></textarea>
 
     <label class="toggle-row">
-      <input type="checkbox" id="enhancedToggle" />
+      <input type="checkbox" id="enhancedToggle" onchange="onModeChange(event)" />
       <span>Enhanced Delivery <span class="hint-inline">(zyada expressive, thoda zyada time lagega)</span></span>
     </label>
+
+    <label class="toggle-row">
+      <input type="checkbox" id="directVoiceToggle" onchange="onModeChange(event)" />
+      <span>Direct Voice <span class="hint-inline">(khud emotion/style batao)</span></span>
+    </label>
+
+    <div id="directVoiceBox" class="hidden" style="margin-bottom:14px;">
+      <textarea id="directVoiceText" placeholder="Add your prompt or choose a suggestion..." rows="4"></textarea>
+      <div class="preset-grid">
+        <button type="button" class="preset-btn" data-preset="excited" onclick="applyPreset('excited')">Excited</button>
+        <button type="button" class="preset-btn" data-preset="casual" onclick="applyPreset('casual')">Casual</button>
+        <button type="button" class="preset-btn" data-preset="calm" onclick="applyPreset('calm')">Calm</button>
+        <button type="button" class="preset-btn" data-preset="cool" onclick="applyPreset('cool')">Cool</button>
+        <button type="button" class="preset-btn" data-preset="serious" onclick="applyPreset('serious')">Serious</button>
+        <button type="button" class="preset-btn" data-preset="funny" onclick="applyPreset('funny')">Funny</button>
+        <button type="button" class="preset-btn" data-preset="angry" onclick="applyPreset('angry')">Angry</button>
+        <button type="button" class="preset-btn" data-preset="sarcastic" onclick="applyPreset('sarcastic')">Sarcastic</button>
+        <button type="button" class="preset-btn" data-preset="laughing" onclick="applyPreset('laughing')">Laughing</button>
+        <button type="button" class="preset-btn" data-preset="flirty" onclick="applyPreset('flirty')">Flirty</button>
+      </div>
+    </div>
 
     <button id="generateBtn" onclick="doGenerate()">Generate</button>
     <p id="generateMsg" class="hint"></p>

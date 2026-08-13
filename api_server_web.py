@@ -151,6 +151,7 @@ class SubmitJobBody(BaseModel):
     text: str
     voice_id: str
     enhanced: bool = False
+    director_style: str | None = None
 
 
 # ─── Register ──────────────────────────────────────────────────────────────
@@ -290,6 +291,7 @@ async def api_submit_job(body: SubmitJobBody):
         "voice_id": body.voice_id,
         "char_count": char_count,
         "enhanced": body.enhanced,
+        "director_style": body.director_style,
         "status": "pending",
     }, prefer="return=representation")
 

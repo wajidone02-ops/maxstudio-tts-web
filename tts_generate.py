@@ -160,7 +160,7 @@ async def generate_tts_audio(
     page, text: str, voice_id: str, video_id: str, script_id: str,
     voice_engine: str = "auto", seed: int | None = None,
     previous_text: str = "", next_text: str = "", force_regenerate: bool = False,
-    enhanced: bool = False, avatar_id: str | None = None,
+    enhanced: bool = False, avatar_id: str | None = None, director_style: str | None = None,
 ) -> dict:
     """
     Returns: {"url": str, "duration": float, "words": [...], "seed": int}
@@ -173,7 +173,16 @@ async def generate_tts_audio(
 
     enhanced: True ho to 'text' already enhance_script_text() se aaya bracket-
     label-wala text hona chahiye — ye function usse khud SSML mein convert
-    kar dega. avatar_id: enhanced mode mein HAR ke payload mein present tha
+    kar dega (ElevenLabsV3 engine, verified real HAR se — 'auto' NAHI, purani
+    assumption thi jo HeyGen ke update ke baad ab galat hai).
+
+    director_style: "Direct Voice" mode (verified real HAR se) — free-text
+    voice/tone description (jaisa HeyGen ke UI mein "Excited"/"Calm" preset
+    buttons ya khud-likha description). Diya jaaye to Panda engine use hoga,
+    plain text (SSML nahi). enhanced aur director_style dono ek saath nahi
+    diye jaane chahiye — enhanced ko priority milegi agar dono diye gaye.
+
+    avatar_id: enhanced/direct mode mein HAR ke payload mein present tha
     (normal mode mein nahi dekha gaya) — safety ke liye pass karo agar pata ho.
     """
     import secrets
@@ -196,8 +205,10 @@ async def generate_tts_audio(
                 "volume": 1,
                 "voice_engine_settings": {
                     "seed": seed,
-                    "director_style": None,
-                    "is_starfish_sts": False,
+                    "engine_type": "elevenLabsV3",
+                    "stability": None,
+                    "style": None,
+                    "localized_el_voice_id": None,
                     "has_enhanced_markup_tags": True,
                 },
             },
@@ -208,11 +219,15 @@ async def generate_tts_audio(
             "script_id": script_id,
             "product_source": "avatar_video",
             "generation_type": "preview",
-            "voice_engine": "auto",
+            "voice_engine": "elevenLabsV3",
         }
         if avatar_id:
             body["avatar_id"] = avatar_id
-    else:
+    elif director_style:
+        # "Direct Voice" mode — Panda engine, plain text (SSML nahi),
+        # director_style DONO jagah bhejna zaroori hai (verified HAR se):
+        # voice_engine_settings.director_style AND top-level
+        # director_mode_settings.director_style.
         body = {
             "text_type": "text",
             "text": text,
@@ -223,7 +238,11 @@ async def generate_tts_audio(
                 "pitch": 0,
                 "speed": 1,
                 "volume": 1,
-                "voice_engine_settings": {"engine_type": voice_engine, "seed": seed, "has_enhanced_markup_tags": False},
+                "voice_engine_settings": {
+                    "engine_type": "panda",
+                    "seed": seed,
+                    "director_style": director_style,
+                },
             },
             "with_timestamps": True,
             "preview": True,
@@ -232,8 +251,42 @@ async def generate_tts_audio(
             "script_id": script_id,
             "product_source": "avatar_video",
             "generation_type": "preview",
-            "voice_engine": voice_engine,
+            "director_mode_settings": {"director_style": director_style},
+            "voice_engine": "panda",
         }
+        if avatar_id:
+            body["avatar_id"] = avatar_id
+    else:
+        # Baseline (koi filter nahi) — verified DOOBARA (pehli HAR contaminated
+        # nikli, iska naya clean HAR se confirm hua): plain text, elevenLabs
+        # engine — SSML ya elevenLabsV3 NAHI (wo purane galat-verify ka assumption tha).
+        body = {
+            "text_type": "text",
+            "text": text,
+            "voice_id": voice_id,
+            "rate": 1,
+            "pitch": 0,
+            "settings": {
+                "pitch": 0,
+                "speed": 1,
+                "volume": 1,
+                "voice_engine_settings": {
+                    "engine_type": "elevenLabs",
+                    "seed": seed,
+                    "use_speaker_boost": False,
+                },
+            },
+            "with_timestamps": True,
+            "preview": True,
+            "video_id": video_id,
+            "force_regenerate": force_regenerate,
+            "script_id": script_id,
+            "product_source": "avatar_video",
+            "generation_type": "preview",
+            "voice_engine": "elevenLabs",
+        }
+        if avatar_id:
+            body["avatar_id"] = avatar_id
 
     if previous_text:
         body["previous_text"] = previous_text

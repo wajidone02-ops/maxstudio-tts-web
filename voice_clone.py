@@ -130,8 +130,21 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
     url = f"{config.API_BASE}/v2/online/voice.stream_preview"
     js = f"""
     (async () => {{
+        // HeyGen ne window.fetch ko globally wrap kar rakha hai (confirmed
+        // stack-trace se: vendor-BinGGX9z.js ki 'u' function). PostHog ka
+        // apna analytics-recorder usi SHARED wrapped-fetch ko background
+        // mein use karta hai — jab uski call fail hoti hai, wrapper ke
+        // internal state ki wajah se HAMARI concurrent call bhi usi
+        // failure mein phas jaati hai ("Failed to fetch", posthog ke stack
+        // trace ke saath). Fix: hidden iframe se ek CLEAN, unwrapped fetch
+        // reference lo — HeyGen ki wrapping se bilkul untouched.
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+        const cleanFetch = iframe.contentWindow.fetch.bind(iframe.contentWindow);
+
         try {{
-            const res = await fetch({url!r}, {{
+            const res = await cleanFetch({url!r}, {{
                 method: "POST",
                 credentials: "include",
                 headers: {{ "accept": "*/*", "content-type": "application/json" }},
@@ -151,6 +164,8 @@ async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, lang
                 errorMessage: e && e.message,
                 errorStack: e && e.stack ? String(e.stack).slice(0, 500) : null
             }});
+        }} finally {{
+            document.body.removeChild(iframe);
         }}
     }})()
     """

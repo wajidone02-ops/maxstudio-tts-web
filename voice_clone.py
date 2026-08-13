@@ -114,63 +114,80 @@ async def get_clone_engines(page, voice_id: str, language: str = "en") -> list[s
 
 async def fetch_voice_preview_bytes(page, voice_id: str, voice_engine: str, language: str = "en") -> bytes:
     """
-    VERIFIED (real HAR, ChatGPT-cross-checked): POST /v2/online/voice.stream_preview
+    VERIFIED (real HAR): POST /v2/online/voice.stream_preview
     Response NDJSON hai (multi-line). Har line: {"sequence_number":N, "audio_bytes":"<base64>",
-    "format":"mp3", ...}. Confirmed decoded bytes MP3 frame se start hote hain (FF FB...).
+    "format":"mp3", ...}.
 
-    Chunk count engine ke hisaab se alag hota hai (elevenLabs ~29-30 chunks,
-    fish ~3-4) — isliye fixed count assume nahi karna. Har line ka audio_bytes
-    ALAG-ALAG decode karke append karo (concatenate-then-decode NAHI —
-    base64 padding chunk-boundary pe galat ban sakti hai). Khali audio_bytes
-    ("") skip karo. sequence_number == -1 wali line final marker hai.
-
-    RETRY: zendriver kabhi-kabhi HeyGen page ki apni unrelated analytics
-    exception (posthog-recorder.js "Failed to fetch") leak kar deta hai jaise
-    ye humari hi request ki error ho — same known pattern jo HeyGen-video
-    project ke render_worker mein pehle diagnose hua tha. Ek baar 3s delay ke
-    saath retry karke ye transient false-failures absorb karte hain.
+    DIAGNOSTIC MODE: browser_fetch() reuse nahi kar rahe — apna JS likha hai
+    jisme explicit try/catch hai, taaki fetch() reject ho to uski ASLI wajah
+    (error.name, error.message) capture ho, na ke generic CDP "Failed to
+    fetch" jo details chhupa deta hai. Jab tak real reason confirm nahi ho
+    jaata, guess-based fix nahi lagana.
     """
     import base64
+    import config
 
-    # HAR-verified (real HeyGen usage): stream_preview khud 6-18 seconds le
-    # sakta hai. Isliye retries mein kaafi patience rakhni zaroori hai —
-    # kam wait se genuine slow calls ko bhi "fail" maan liya jaata tha.
-    last_error = None
-    for attempt in range(4):  # 1 try + 3 retries
+    url = f"{config.API_BASE}/v2/online/voice.stream_preview"
+    js = f"""
+    (async () => {{
+        try {{
+            const res = await fetch({url!r}, {{
+                method: "POST",
+                credentials: "include",
+                headers: {{ "accept": "*/*", "content-type": "application/json" }},
+                body: JSON.stringify({{
+                    voice_id: {voice_id!r},
+                    language: {language!r},
+                    voice_engine: {voice_engine!r}
+                }})
+            }});
+            const status = res.status;
+            const text = await res.text();
+            return JSON.stringify({{ ok: true, status, text }});
+        }} catch (e) {{
+            return JSON.stringify({{
+                ok: false,
+                errorName: e && e.name,
+                errorMessage: e && e.message,
+                errorStack: e && e.stack ? String(e.stack).slice(0, 500) : null
+            }});
+        }}
+    }})()
+    """
+    raw = await page.evaluate(js, await_promise=True)
+    parsed = json.loads(raw) if isinstance(raw, str) else raw
+
+    if not parsed.get("ok"):
+        raise ApiError(
+            f"Preview fetch fail — real JS error: name={parsed.get('errorName')}, "
+            f"message={parsed.get('errorMessage')}, stack={parsed.get('errorStack')}"
+        )
+
+    if parsed.get("status") != 200:
+        raise ApiError(f"Preview HTTP fail (status={parsed.get('status')}): {parsed.get('text', '')[:300]}")
+
+    text_body = parsed.get("text", "")
+    audio_parts = []
+    for line in text_body.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
         try:
-            result = await browser_fetch(
-                page, "POST", "/v2/online/voice.stream_preview",
-                json_body={"voice_id": voice_id, "language": language, "voice_engine": voice_engine},
-            )
-            text_body = result.get("raw", "") if isinstance(result, dict) else ""
+            chunk = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
-            audio_parts = []
-            for line in text_body.strip().split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    chunk = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+        b64 = chunk.get("audio_bytes")
+        if b64:
+            audio_parts.append(base64.b64decode(b64))
 
-                b64 = chunk.get("audio_bytes")
-                if b64:
-                    audio_parts.append(base64.b64decode(b64))
+        if chunk.get("sequence_number") == -1:
+            break
 
-                if chunk.get("sequence_number") == -1:
-                    break
+    if not audio_parts:
+        raise ApiError(f"Preview response mein audio_bytes nahi mila: {text_body[:300]}")
 
-            if not audio_parts:
-                raise ApiError(f"Preview response mein audio_bytes nahi mila: {text_body[:300]}")
-
-            return b"".join(audio_parts)
-        except Exception as e:
-            last_error = e
-            if attempt < 3:
-                await asyncio.sleep(5 + attempt * 3)  # 5s, 8s, 11s
-                continue
-            raise last_error
+    return b"".join(audio_parts)
 
 
 async def finalize_voice_clone(page, voice_id: str, voice_engine: str):

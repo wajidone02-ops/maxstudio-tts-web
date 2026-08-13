@@ -309,17 +309,135 @@ async function finalizeVoice(voiceId, engine, name, clickedIndex, totalCount) {
   }
 }
 
+// ─── Direct Voice presets (exact text, HeyGen UI se) ────────────────────
+
+const DIRECTOR_PRESETS = {
+  excited: `Voice: Highly enthusiastic, exuberant, and vibrant, projecting genuine excitement and joyful surprise.
+  
+Tone: Energetic, uplifting, and celebratory, clearly expressing delight and overwhelming happiness.
+
+Punctuation: Quick, fluid sentences with brief pauses, strategically placed to enhance excitement and emphasize thrilling points.
+
+Delivery: Rapid and lively, with rising pitch and animated intonation, allowing authentic enthusiasm and surprise to prominently resonate throughout.`,
+
+  casual: `Voice: Relaxed, conversational, and authentic, conveying warmth and genuine friendliness.
+  
+Tone: Casual, approachable, and lightly playful, fostering connection and comfort.
+
+Punctuation: Natural phrasing with varied sentence lengths, incorporating brief pauses and occasional laughter to enhance authenticity and relatability.
+
+Delivery: Varied pitch and rhythm reflecting spontaneous speech patterns, allowing slight emphasis and gentle pacing to maintain listener engagement.
+
+Phrasing: Informal and personable, using everyday language to evoke the sense of a comfortable, friendly conversation.`,
+
+  calm: `Voice: Soft, gentle, and reassuring, conveying warmth and comfort.
+  
+Tone: Tender, warm, and soothing, designed to instill calm and reassurance.
+
+Punctuation: Fluid, natural phrases with minimal pauses to maintain gentle momentum and continuous flow.
+
+Delivery: Moderately quick, smoothly paced, with consistent softness throughout, subtly emphasizing words that convey care and comfort.`,
+
+  cool: `Voice: Smooth, relaxed, and confidently resonant, projecting a sense of effortless charisma and poise.
+  
+Tone: Cool, subtly mysterious, and engaging, creating intrigue through nuanced inflection and understated authority.
+
+Punctuation: Leisurely paced, employing deliberate pauses and measured rhythm to enhance the sense of intrigue and ease.
+
+Delivery: Calm and assured, with a gentle, flowing cadence, emphasizing select words to deepen impact and enhance allure.
+
+Phrasing: Effortlessly stylish and slightly enigmatic, crafted to captivate attention and maintain a sophisticated charm.`,
+
+  serious: `Voice: Calm, measured, and authoritative, conveying professionalism and seriousness.
+  
+Tone: Formal, direct, and informative, with a controlled emotional register.
+
+Punctuation: Deliberate pauses and clear sentence structures, emphasizing precision and clarity.
+
+Delivery: Steady, confident pace, using subtle emphasis to underscore critical information.
+
+Phrasing: Concise and purposeful, prioritizing clarity and impact in communication.`,
+
+  funny: `Voice: Warm, lively, and confident, like someone who enjoys telling a great story and knows the punchline will land. 
+Tone: Playful, clever, and inviting, building light anticipation while keeping the mood fun and upbeat. 
+
+Punctuation: Smooth and natural, with pauses before the punchline to create rhythm and let the joke hit clearly. 
+
+Delivery: Relaxed and clear, with slight emphasis or playful tone shifts to highlight the setup and payoff. Avoid overacting — just enough energy to make it entertaining. 
+
+Phrasing: Simple and expressive. Use clear setups and crisp punchlines, and sound like you're having fun sharing the joke.`,
+
+  angry: `Voice: Sharp, tense, and forceful, projecting anger and frustration clearly through intensity and firmness.
+  
+Tone: Harsh, impatient, and strained, conveying a strong sense of irritation and exasperation.
+
+Punctuation: Short, abrupt sentences punctuated with pronounced pauses, reflecting agitation and urgency.
+
+Delivery: Quickened and intense, emphasizing key words and phrases strongly to express heightened emotional stress.
+
+Phrasing: Direct and accusatory, with rising and falling intonation to underscore irritation and dissatisfaction.`,
+
+  sarcastic: `Tone: Sarcastic, disinterested, and melancholic, with a hint of passive-aggressiveness.
+  
+Emotion: Apathy mixed with reluctant engagement.
+
+Delivery: Monotone with occasional sighs, drawn-out words, and subtle disdain, evoking a classic emo teenager attitude.`,
+
+  laughing: `Voice: Warm, lively, and genuinely amused, naturally conveying enjoyment and humor.
+
+Tone: Playful, friendly, and engaging, effortlessly evoking a sense of genuine amusement and joy.
+
+Punctuation: Casual and rhythmic, incorporating strategic pauses to allow natural laughter and chuckles to blend smoothly into the delivery.
+
+Delivery: Relaxed and spontaneous, letting soft laughter and gentle chuckles emerge organically at the beginning, middle, or end of sentences.
+
+Phrasing: Lighthearted and expressive, emphasizing phrases with a smile or subtle laugh to convey authentic amusement and contagious cheerfulness.`,
+
+  flirty: `Voice: Playful, confident, and inviting, with a touch of cheekiness, designed to create an alluring presence.
+  
+Tone: Lighthearted, teasing, and slightly mysterious, giving the impression of fun with just a hint of charm.
+
+Punctuation: Quick, lively sentences with a mix of playful pauses, designed to emphasize teasing moments and build tension.
+
+Delivery: Animated and dynamic, with a gentle rise in pitch toward the end of phrases, adding a flirtatious and inviting tone.
+
+Phrasing: Smooth and confident, with certain words emphasized to evoke an enticing and mischievous energy, making it clear you're enjoying the moment.`,
+};
+
+function onModeChange(e) {
+  const enhanced = document.getElementById("enhancedToggle");
+  const direct = document.getElementById("directVoiceToggle");
+  const box = document.getElementById("directVoiceBox");
+
+  // Mutually exclusive — dono ek saath ON nahi rehne chahiye
+  const source = e && e.target ? e.target.id : null;
+  if (source === "enhancedToggle" && enhanced.checked) direct.checked = false;
+  if (source === "directVoiceToggle" && direct.checked) enhanced.checked = false;
+
+  box.classList.toggle("hidden", !direct.checked);
+}
+
+function applyPreset(key) {
+  document.getElementById("directVoiceText").value = DIRECTOR_PRESETS[key];
+  document.querySelectorAll(".preset-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.preset === key);
+  });
+}
+
 // ─── Generate ───────────────────────────────────────────────────────────
 
 async function doGenerate() {
   const voiceId = document.getElementById("voiceSelect").value;
   const text = document.getElementById("genText").value.trim();
   const enhanced = document.getElementById("enhancedToggle").checked;
+  const directOn = document.getElementById("directVoiceToggle").checked;
+  const directorStyle = directOn ? document.getElementById("directVoiceText").value.trim() : null;
   const msg = document.getElementById("generateMsg");
   const btn = document.getElementById("generateBtn");
 
   if (!voiceId) { alert("Pehle koi voice clone karo."); return; }
   if (!text) { alert("Text likho."); return; }
+  if (directOn && !directorStyle) { alert("Direct Voice ke liye emotion/style likho ya suggestion choose karo."); return; }
 
   btn.disabled = true;
   btn.textContent = "Submit ho raha hai...";
@@ -330,7 +448,7 @@ async function doGenerate() {
     const res = await fetch(`${API}/submit-job`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: TOKEN, text, voice_id: voiceId, enhanced }),
+      body: JSON.stringify({ token: TOKEN, text, voice_id: voiceId, enhanced, director_style: directorStyle }),
     });
     const data = await res.json();
     if (!data.ok) {

@@ -257,37 +257,14 @@ function renderEngineChoice(result) {
   const box = document.getElementById("engineChoice");
   box.classList.remove("hidden");
   box.innerHTML = `
-    <p class="hint" style="margin-top:10px;">Engine sun ke best wala choose karo:</p>
-    ${result.engines.map((eng, i) => `
+    <p class="hint" style="margin-top:10px;">Ek engine choose karo:</p>
+    ${result.engines.map((eng) => `
       <div class="engine-row" data-engine="${eng}">
-        <button class="secondary small" onclick="previewEngine('${result.voice_id}','${eng}', this)">▶ Play</button>
         <span class="engine-name">${eng}</span>
         <button class="small" onclick="finalizeVoice('${result.voice_id}','${eng}','${result.name}')">Use this voice</button>
       </div>
     `).join("")}
   `;
-}
-
-async function previewEngine(voiceId, engine, btnEl) {
-  btnEl.disabled = true;
-  const original = btnEl.textContent;
-  btnEl.textContent = "Loading...";
-  try {
-    const res = await fetch(`${API}/voices/preview`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: TOKEN, voice_id: voiceId, voice_engine: engine }),
-    });
-    const data = await res.json();
-    if (!data.ok) { alert(data.error || "Preview fail ho gaya."); return; }
-    const audio = new Audio(data.audio_data_url);
-    audio.play();
-  } catch (e) {
-    alert("Preview load nahi ho paya.");
-  } finally {
-    btnEl.disabled = false;
-    btnEl.textContent = original;
-  }
 }
 
 async function finalizeVoice(voiceId, engine, name) {

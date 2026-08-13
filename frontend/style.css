@@ -109,3 +109,9 @@ button.secondary:hover { background: #444; }
 }
 .job-download:hover { text-decoration: underline; }
 .job-error { color: #ff6b6b; font-size: 12px; margin-top: 4px; }
+
+.engine-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  background: #262629; border: 1px solid #3a3a3d; border-radius: 8px; padding: 8px 10px;
+}
+.engine-name { flex: 1; font-size: 13px; color: #ccc; text-transform: capitalize; }

@@ -33,7 +33,8 @@ MAX_CONCURRENT = 4
 POLL_INTERVAL = 3          # seconds — free slot ho to kitni jaldi naya job dhoonde
 STALE_RECOVERY_INTERVAL = 600   # 10 min — proven pattern (render_worker.py se)
 STALE_THRESHOLD_MIN = 30
-JOB_TIMEOUT_SECONDS = 300  # 5 min — isse zyada koi job na le (hang-protection)
+JOB_TIMEOUT_SECONDS = 1800   # 30 min — generous OVERALL ceiling, sirf genuine-hang jobs pakadne ke liye
+LOGIN_CHECK_TIMEOUT = 45     # session-validation yahi jagah hang hoti hai (diagnosed) — isko chhota rakha
 OUTPUT_DIR = Path("/var/www/tts-downloads")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -163,12 +164,11 @@ async def process_job(job: dict):
     job_id = job["id"]
     user_id = job["user_id"]
     try:
-        # POORE job (browser start, login-check, generation) pe hard timeout —
-        # taaki agar kabhi HeyGen session/cookie ki wajah se page.get() ya
-        # login-check kahin HANG ho jaaye (na error, na success), job hamesha
-        # ke liye 'processing' mein na phansi rahe aur worker ka ek slot
-        # permanently block na ho. TIMEOUT_SECONDS se zyada lene wali koi bhi
-        # job automatically 'failed' ho jaayegi, agla job free slot le lega.
+        # OVERALL job pe ek generous ceiling (30 min) — sirf genuine-hang jobs
+        # (jaise poori tarah stuck browser) ko pakadne ke liye, taaki koi job
+        # HAMESHA ke liye 'processing' na rahe. Lambi script (kai chunks) ke
+        # liye normal generation isse kabhi touch nahi karega — asal hang
+        # (session/login-check) ka fine-grained timeout neeche alag se hai.
         await asyncio.wait_for(_process_job_inner(job), timeout=JOB_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         print(f"[timeout] job {job_id} — {JOB_TIMEOUT_SECONDS}s se zyada le raha tha, fail maar diya")
@@ -193,7 +193,19 @@ async def _process_job_inner(job: dict):
         session = VpsBrowserSession(user["heygen_cookie"])
         page = await session.start()
 
-        if not await is_logged_in(page):
+        # Sirf YAHAN chhota timeout — diagnosed ki asal hang session-
+        # validation (browser.get + is_logged_in) ke waqt hoti hai (invalid
+        # cookie, HeyGen challenge-wall, ya redirect-loop). Isko jaldi
+        # pakadna zaroori hai, taaki lambi scripts wali jobs (jinhe genuinely
+        # normal generation mein zyada time lagta hai) affect na hon.
+        try:
+            logged_in = await asyncio.wait_for(is_logged_in(page), timeout=LOGIN_CHECK_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"HeyGen session-check {LOGIN_CHECK_TIMEOUT}s mein hang ho gaya — "
+                f"session/cookie expire ho sakta hai, dobara connect karo."
+            )
+        if not logged_in:
             raise RuntimeError("HeyGen session expire ho gaya — dobara connect karna hoga.")
 
         # Enhanced ho to poore text ko chunk se PEHLE enhance karo (behtar context)

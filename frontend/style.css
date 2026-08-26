@@ -71,6 +71,7 @@ button.secondary:hover { background: #444; }
 .auth-tab { flex: 1; background: #262629; color: #999; border: 1px solid #3a3a3d; }
 .auth-tab.active { background: #22d3ee; color: #06222a; }
 .divider { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 8px; }
+.consent-text { font-size: 12px; color: #999; line-height: 1.6; margin-bottom: 12px; }
 
 .header-right { display: flex; align-items: center; gap: 12px; }
 .user-info { display: flex; align-items: center; }

@@ -31,9 +31,25 @@
     <input id="authPassword" type="password" placeholder="Login password" />
 
     <div id="registerExtra" class="hidden">
-      <div class="divider">HeyGen Account</div>
-      <input id="hgEmail" type="email" placeholder="HeyGen email" />
-      <input id="hgPassword" type="password" placeholder="HeyGen password" />
+      <div class="divider">HeyGen Account Setup</div>
+      <p class="consent-text">
+        Naya Gmail account bana kar do (apni personal Gmail nahi) — is email par
+        hum aapke liye ek HeyGen account banayenge jahan aapki TTS generate hogi.
+        <br /><br />
+        Jab is account ki daily-limit khatam ho jaayegi, hum isi Gmail se automatic
+        tareeke se ek NAYA HeyGen account bana denge (purana delete karke) — taaki
+        aapki service bina rukавat ke chalti rahe. Ye process background mein
+        automatic hota rahega, jab bhi zaroorat pade.
+        <br /><br />
+        ⚠️ Sirf isi purpose ke liye ek naya Gmail banayein — apna personal ya kisi
+        aur zaroori kaam wala Gmail yahan na dein.
+      </p>
+      <input id="recycleGmail" type="email" placeholder="Naya Gmail address" />
+      <input id="recycleGmailPassword" type="password" placeholder="Gmail App Password (16-digit)" />
+      <label class="toggle-row">
+        <input type="checkbox" id="consentCheckbox" />
+        <span>Maine upar likhi baat samajh li hai, aur is Gmail + app-password ko is process ke liye use karne ki permission deta hoon.</span>
+      </label>
     </div>
 
     <button id="authSubmit" onclick="submitAuth()">Login</button>

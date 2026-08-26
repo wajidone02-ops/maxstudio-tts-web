@@ -96,13 +96,17 @@ async function submitAuth() {
 
   let body = { email, password };
   if (AUTH_MODE === "register") {
-    const hgEmail = document.getElementById("hgEmail").value.trim();
-    const hgPassword = document.getElementById("hgPassword").value;
-    if (!hgEmail || !hgPassword) {
-      msg.style.color = "#ff6b6b"; msg.textContent = "HeyGen email/password bhi zaroori hai."; return;
+    const gmail = document.getElementById("recycleGmail").value.trim();
+    const gmailAppPassword = document.getElementById("recycleGmailPassword").value;
+    const consented = document.getElementById("consentCheckbox").checked;
+    if (!gmail || !gmailAppPassword) {
+      msg.style.color = "#ff6b6b"; msg.textContent = "Gmail aur App Password dono zaroori hai."; return;
     }
-    body.heygen_email = hgEmail;
-    body.heygen_password = hgPassword;
+    if (!consented) {
+      msg.style.color = "#ff6b6b"; msg.textContent = "Aage badhne ke liye upar wali baat samajh ke checkbox check karo."; return;
+    }
+    body.recycle_gmail = gmail;
+    body.recycle_gmail_app_password = gmailAppPassword;
   }
 
   btn.disabled = true;
@@ -169,7 +173,7 @@ async function loadVoices() {
     listEl.appendChild(chip);
 
     const opt = document.createElement("option");
-    opt.value = v.voice_id;
+    opt.value = v.id;
     opt.textContent = v.name;
     selectEl.appendChild(opt);
   });
@@ -427,7 +431,7 @@ function applyPreset(key) {
 // ─── Generate ───────────────────────────────────────────────────────────
 
 async function doGenerate() {
-  const voiceId = document.getElementById("voiceSelect").value;
+  const voiceRefId = document.getElementById("voiceSelect").value;
   const text = document.getElementById("genText").value.trim();
   const enhanced = document.getElementById("enhancedToggle").checked;
   const directOn = document.getElementById("directVoiceToggle").checked;
@@ -435,7 +439,7 @@ async function doGenerate() {
   const msg = document.getElementById("generateMsg");
   const btn = document.getElementById("generateBtn");
 
-  if (!voiceId) { alert("Pehle koi voice clone karo."); return; }
+  if (!voiceRefId) { alert("Pehle koi voice clone karo."); return; }
   if (!text) { alert("Text likho."); return; }
   if (directOn && !directorStyle) { alert("Direct Voice ke liye emotion/style likho ya suggestion choose karo."); return; }
 
@@ -448,7 +452,7 @@ async function doGenerate() {
     const res = await fetch(`${API}/submit-job`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: TOKEN, text, voice_id: voiceId, enhanced, director_style: directorStyle }),
+      body: JSON.stringify({ token: TOKEN, text, voice_ref_id: voiceRefId, enhanced, director_style: directorStyle }),
     });
     const data = await res.json();
     if (!data.ok) {

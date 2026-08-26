@@ -180,15 +180,32 @@ async def _process_job_inner(job: dict):
     job_id = job["id"]
     user_id = job["user_id"]
     text = job["text"]
-    voice_id = job["voice_id"]
     enhanced = job.get("enhanced", False)
     director_style = job.get("director_style")
+
+    # LIVE voice_id resolve karo voice_ref_id (tts_voices.id) se — recycle
+    # ke baad voice_id badal chuka ho sakta hai, submit-time ka snapshot
+    # stale ho sakta hai. voice_ref_id na ho (purani job) to snapshot use karo.
+    voice_id = job.get("voice_id")
+    if job.get("voice_ref_id"):
+        rows = await _rest("GET", f"tts_voices?id=eq.{job['voice_ref_id']}&select=voice_id")
+        if rows:
+            voice_id = rows[0]["voice_id"]
 
     session = None
     try:
         user = await get_user(user_id)
         if not user or not user.get("heygen_cookie"):
             raise RuntimeError("User ka HeyGen account connect nahi hai.")
+
+        # Agar account abhi recycle ho raha hai (ya recycle ka wait kar raha
+        # hai), turant skip karo — bina browser khole. Warna wahi job baar-
+        # baar turant retry hoke dobara rate-limit hit karti rahegi jab tak
+        # recycler complete na ho, worker-slot waste hota rahega.
+        if user.get("agent_status") in ("needs_recycle", "recycling", "not_connected"):
+            print(f"[skip] job {job_id} — account status '{user.get('agent_status')}', recycle ka wait")
+            await _rest("PATCH", f"tts_jobs?id=eq.{job_id}", body={"status": "pending"}, prefer="return=minimal")
+            return
 
         session = VpsBrowserSession(user["heygen_cookie"])
         page = await session.start()
@@ -251,9 +268,20 @@ async def _process_job_inner(job: dict):
         print(f"[done] job {job_id}")
 
     except Exception as e:
-        print(f"[failed] job {job_id}: {e}")
-        await mark_failed(job_id, str(e))
-        await refund_chars(user_id, job.get("char_count", 0))
+        error_text = str(e)
+        # HeyGen ka rate-limit error (verified format): error_code 400140,
+        # "Exceed rate limit" / "exceeded the maximum daily limit". Ye job
+        # ki galti nahi hai — is customer ka account 30-min-cap khatam hua.
+        # FAIL nahi karte — job wapas 'pending' karo (retry hoga recycle ke
+        # baad) + account-recycler ko trigger karo.
+        if "400140" in error_text or "exceed" in error_text.lower() or "maximum daily limit" in error_text.lower():
+            print(f"[rate-limit] job {job_id} — account recycle chahiye, job requeue kar raha hoon")
+            await _rest("PATCH", f"tts_jobs?id=eq.{job_id}", body={"status": "pending"}, prefer="return=minimal")
+            await _rest("PATCH", f"app_users?id=eq.{user_id}", body={"agent_status": "needs_recycle"}, prefer="return=minimal")
+        else:
+            print(f"[failed] job {job_id}: {e}")
+            await mark_failed(job_id, str(e))
+            await refund_chars(user_id, job.get("char_count", 0))
     finally:
         if session:
             await session.stop()

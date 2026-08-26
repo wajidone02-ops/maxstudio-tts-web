@@ -15,6 +15,7 @@ chalta hai, kabhi client ko nahi milta — jaisa render_worker.py mein hai.
 import asyncio
 import json
 import secrets
+import shutil
 import ssl
 import time
 import uuid
@@ -149,7 +150,7 @@ class LoginBody(BaseModel):
 class SubmitJobBody(BaseModel):
     token: str
     text: str
-    voice_id: str
+    voice_ref_id: str  # tts_voices.id — stable reference
     enhanced: bool = False
     director_style: str | None = None
 
@@ -269,6 +270,14 @@ async def api_submit_job(body: SubmitJobBody):
     if not text:
         return {"ok": False, "error": "Text khali hai."}
 
+    # voice_ref_id se current (live) voice_id nikaalo — ye submit-time
+    # snapshot bhi banega, par worker job-process karte waqt phir se live
+    # resolve karega (agar beech mein recycle ho jaaye to bhi sahi voice use ho)
+    voice_rows = await _rest("GET", f"tts_voices?id=eq.{body.voice_ref_id}&user_id=eq.{user['id']}&select=voice_id")
+    if not voice_rows:
+        return {"ok": False, "error": "Voice nahi mili — dobara select karo."}
+    voice_id = voice_rows[0]["voice_id"]
+
     char_count = len(text)
     user = _ensure_fresh_quota(user)
     limit = user.get("daily_char_limit", 100000)
@@ -288,7 +297,8 @@ async def api_submit_job(body: SubmitJobBody):
     job = await _rest("POST", "tts_jobs", body={
         "user_id": user["id"],
         "text": text,
-        "voice_id": body.voice_id,
+        "voice_id": voice_id,
+        "voice_ref_id": body.voice_ref_id,
         "char_count": char_count,
         "enhanced": body.enhanced,
         "director_style": body.director_style,
@@ -350,6 +360,10 @@ async def api_voices_clone(
     return {"ok": True, "task_id": task_id}
 
 
+PERMANENT_AUDIO_DIR = Path("/var/www/tts-downloads/voice-samples")
+PERMANENT_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+
 async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, audio_path: str, remove_background: bool):
     async def status_cb(msg):
         CLONE_TASKS[task_id]["messages"].append(msg)
@@ -366,10 +380,18 @@ async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, 
             page, audio_path, name, remove_background_noise=remove_background, status_cb=status_cb
         )
 
+        # Audio sample PERMANENT rakho (delete nahi) — account-recycle ke
+        # waqt isi se voice dobara re-clone hoti hai. Original filename se
+        # extension nikaal ke voice_id se naam do (unique, traceable).
+        ext = Path(audio_path).suffix or ".wav"
+        permanent_path = PERMANENT_AUDIO_DIR / f"{result['voice_id']}{ext}"
+        shutil.copy(audio_path, permanent_path)
+
         # Session ZINDA rakho — Play-clicks aur finalize isi ko reuse karenge
         # (naya Chrome baar-baar kholna resource-wasteful hai)
         ACTIVE_CLONE_SESSIONS[result["voice_id"]] = {
             "session": session, "page": page, "last_used": time.time(),
+            "source_audio_path": str(permanent_path),
         }
 
         CLONE_TASKS[task_id]["status"] = "awaiting_engine_choice"
@@ -380,7 +402,7 @@ async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, 
         if session:
             await session.stop()   # sirf error pe band karo — success pe zinda rakhni hai
     finally:
-        Path(audio_path).unlink(missing_ok=True)
+        Path(audio_path).unlink(missing_ok=True)  # temp-upload wali copy hata do (permanent wali alag hai)
 
 
 @app.get("/api/voices/clone/status/{task_id}")
@@ -466,8 +488,10 @@ async def api_voices_finalize(body: FinalizeBody):
 
         await finalize_voice_clone(page, body.voice_id, body.voice_engine)
 
+        source_audio_path = active.get("source_audio_path") if active else None
         await _rest("POST", "tts_voices", body={
             "user_id": user["id"], "name": body.name, "voice_id": body.voice_id,
+            "source_audio_path": source_audio_path, "chosen_engine": body.voice_engine,
         }, prefer="return=minimal")
 
         return {"ok": True}

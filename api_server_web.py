@@ -138,8 +138,8 @@ def _ensure_fresh_quota(user: dict) -> dict:
 class RegisterBody(BaseModel):
     email: str
     password: str
-    heygen_email: str
-    heygen_password: str
+    recycle_gmail: str
+    recycle_gmail_app_password: str
 
 
 class LoginBody(BaseModel):
@@ -160,8 +160,8 @@ class SubmitJobBody(BaseModel):
 @app.post("/api/register")
 async def api_register(body: RegisterBody):
     email = body.email.strip().lower()
-    if not email or not body.password or not body.heygen_email or not body.heygen_password:
-        return {"ok": False, "error": "Saari fields bharo (login email/password, HeyGen email/password)."}
+    if not email or not body.password or not body.recycle_gmail or not body.recycle_gmail_app_password:
+        return {"ok": False, "error": "Saari fields bharo (login email/password, Gmail/app-password)."}
     if len(body.password) < 4:
         return {"ok": False, "error": "Password kam se kam 4 characters ka rakho."}
 
@@ -175,9 +175,9 @@ async def api_register(body: RegisterBody):
             "email": email,
             "password_hash": hashed,
             "phone": email,  # phone column NOT NULL/unique hai; email hi duplicate rakh dete hain
-            "heygen_email": body.heygen_email.strip(),
-            "heygen_password": body.heygen_password,
-            "agent_status": "pending_agent_login",
+            "recycle_gmail": body.recycle_gmail.strip(),
+            "recycle_gmail_app_password": body.recycle_gmail_app_password,
+            "agent_status": "not_connected",  # account_recycler_web.py isko turant pick karega
             "chars_used_today": 0,
             "usage_reset_at": _now_iso(),
         }, prefer="return=minimal")

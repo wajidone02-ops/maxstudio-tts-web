@@ -17,15 +17,24 @@ HEYGEN_APP_URL = "https://app.heygen.com/"
 
 
 class VpsBrowserSession:
-    def __init__(self, cookie_string: str):
+    def __init__(self, cookie_string: str = "", headless: bool = True):
+        """
+        cookie_string: khali ("") ho to koi cookie inject nahi hoti — naye
+        signup-flow ke liye fresh/anonymous session chahiye hoti hai.
+        headless: True hamesha use hota hai (default) — poore system mein
+        yahi tareeka hai (worker, signup, recycle sab), VPS pe proven/
+        confirmed. Param sirf flexibility ke liye hai, override ki zaroorat
+        normally nahi padegi.
+        """
         self.cookie_string = cookie_string
+        self.headless = headless
         self.profile_dir = Path(tempfile.mkdtemp(prefix="tts_worker_"))
         self.browser: zd.Browser | None = None
         self.page = None
 
-    async def start(self):
+    async def start(self, navigate_url: str = HEYGEN_APP_URL):
         cfg = zd.Config(
-            headless=True,
+            headless=self.headless,
             user_data_dir=str(self.profile_dir),
             browser_args=[
                 "--no-first-run",
@@ -35,7 +44,7 @@ class VpsBrowserSession:
         )
         self.browser = await zd.start(cfg)
 
-        # Cookies inject karo (login-form fill karne ki zaroorat nahi)
+        # Cookies inject karo (agar di gayi hon — signup-flow ke liye khali hoti hai)
         params = []
         for part in self.cookie_string.split(";"):
             part = part.strip()
@@ -54,7 +63,7 @@ class VpsBrowserSession:
         if params:
             await self.browser.cookies.set_all(params)
 
-        self.page = await self.browser.get(HEYGEN_APP_URL)
+        self.page = await self.browser.get(navigate_url)
         return self.page
 
     async def stop(self):
@@ -64,6 +73,15 @@ class VpsBrowserSession:
         # Temp profile cleanup — VPS disk bharne se bachne ke liye
         import shutil
         shutil.rmtree(self.profile_dir, ignore_errors=True)
+
+
+async def extract_cookie_string(browser) -> str:
+    """Browser ki saari heygen.com cookies nikaal ke 'name=value; name=value'
+    string banata hai — account_recycler naya login hone ke baad isko call
+    karke fresh cookie DB mein save karta hai."""
+    all_cookies = await browser.cookies.get_all()
+    parts = [f"{c.name}={c.value}" for c in all_cookies if "heygen" in (c.domain or "")]
+    return "; ".join(parts)
 
 
 async def is_logged_in(page) -> bool:

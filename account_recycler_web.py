@@ -15,9 +15,29 @@ liye bhi.
 import asyncio
 import json
 import ssl
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import aiohttp
 import certifi
+
+# ─── File-logging setup (tere doosre project jaisा — tail -f se dekhте ho) ──
+LOG_FILE = Path("/root/maxstudio-tts-web/recycler_log.txt")
+_log_fh = open(LOG_FILE, "a", encoding="utf-8", buffering=1)  # line-buffered — turant likhta hai
+
+
+def print(*args, **kwargs):
+    """Har print() ko timestamp ke saath file mein bhi likhta hai, terminal
+    pe bhi dikhata hai — jaisa render_log.txt karta hai."""
+    import builtins
+    msg = " ".join(str(a) for a in args)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    builtins.print(line, **kwargs)
+    _log_fh.write(line + "\n")
+    _log_fh.flush()
 
 from browser_session_vps import VpsBrowserSession, extract_cookie_string
 from account_recycle import trigger_signup, login_via_magic_link, request_deletion_code, confirm_deletion

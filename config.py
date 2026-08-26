@@ -4,3 +4,4 @@ Secrets (Supabase URL/key) local_settings.py mein hain, wo .gitignore mein hai.
 """
 
 API_BASE = "https://api2.heygen.com"
+HEYGEN_APP_URL = "https://app.heygen.com/"

@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from browser_session_vps import VpsBrowserSession, is_logged_in
-from voice_clone import clone_voice_from_audio, fetch_voice_preview_bytes, finalize_voice_clone
+from voice_clone import clone_voice_from_audio, fetch_voice_preview_bytes, finalize_voice_clone, delete_voice, VoiceLimitError
 from local_settings import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY as SERVICE_ROLE_KEY
 
 app = FastAPI()
@@ -396,6 +396,11 @@ async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, 
 
         CLONE_TASKS[task_id]["status"] = "awaiting_engine_choice"
         CLONE_TASKS[task_id]["result"] = {"voice_id": result["voice_id"], "engines": result["engines"], "name": name}
+    except VoiceLimitError as e:
+        CLONE_TASKS[task_id]["status"] = "voice_limit_reached"
+        CLONE_TASKS[task_id]["error"] = str(e)
+        if session:
+            await session.stop()
     except Exception as e:
         CLONE_TASKS[task_id]["status"] = "failed"
         # ApiError ka .body mein HeyGen ka ASLI response hota hai (error_message/
@@ -507,3 +512,39 @@ async def api_voices_finalize(body: FinalizeBody):
     finally:
         if session:
             await session.stop()   # kaam poora — ab session ki zaroorat nahi
+
+
+class DeleteVoiceBody(BaseModel):
+    token: str
+    voice_ref_id: str  # tts_voices.id
+
+
+@app.post("/api/voices/delete")
+async def api_voices_delete(body: DeleteVoiceBody):
+    """Voice ko HeyGen account se AUR hamari DB se dono jagah se delete karta
+    hai — sirf DB se delete karne se HeyGen-side slot free nahi hota, agli
+    clone-koshish phir bhi limit-error degi."""
+    user = await get_user_by_token(body.token)
+    if not user or not user.get("heygen_cookie"):
+        return {"ok": False, "error": "Session invalid."}
+
+    rows = await _rest("GET", f"tts_voices?id=eq.{body.voice_ref_id}&user_id=eq.{user['id']}&select=*")
+    if not rows:
+        return {"ok": False, "error": "Voice nahi mili."}
+    voice = rows[0]
+
+    session = None
+    try:
+        session = VpsBrowserSession(user["heygen_cookie"])
+        page = await session.start()
+        if not await is_logged_in(page):
+            return {"ok": False, "error": "HeyGen session expire ho gayi."}
+
+        await delete_voice(page, voice["voice_id"])
+        await _rest("DELETE", f"tts_voices?id=eq.{body.voice_ref_id}")
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        if session:
+            await session.stop()

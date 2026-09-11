@@ -169,7 +169,7 @@ async function loadVoices() {
   voices.forEach((v) => {
     const chip = document.createElement("div");
     chip.className = "voice-chip";
-    chip.textContent = v.name;
+    chip.innerHTML = `<span>${v.name}</span> <button class="voice-delete-btn" onclick="deleteVoice('${v.id}', '${v.name.replace(/'/g, "\\'")}', this)" title="Delete">✕</button>`;
     listEl.appendChild(chip);
 
     const opt = document.createElement("option");
@@ -177,6 +177,24 @@ async function loadVoices() {
     opt.textContent = v.name;
     selectEl.appendChild(opt);
   });
+}
+
+async function deleteVoice(voiceRefId, name, btnEl) {
+  if (!confirm(`'${name}' voice delete karni hai? Ye HeyGen account se bhi permanently hat jaayegi.`)) return;
+  btnEl.disabled = true;
+  try {
+    const res = await fetch(`${API}/voices/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: TOKEN, voice_ref_id: voiceRefId }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || "Delete nahi ho paya."); btnEl.disabled = false; return; }
+    await loadVoices();
+  } catch (e) {
+    alert("Server se connect nahi ho paya.");
+    btnEl.disabled = false;
+  }
 }
 
 function openCloneModal() {
@@ -248,6 +266,13 @@ async function pollCloneProgress(taskId, progressEl, btn) {
     renderEngineChoice(data.result);
     return;
   }
+  if (data.status === "voice_limit_reached") {
+    progressEl.innerHTML += `<div style="color:#fbbf24">⚠ ${data.error}</div>`;
+    btn.disabled = false;
+    btn.textContent = "Clone";
+    showDeleteVoicePrompt();
+    return;
+  }
   if (data.status === "failed") {
     progressEl.innerHTML += `<div style="color:#ff6b6b">✗ ${data.error}</div>`;
     btn.disabled = false;
@@ -255,6 +280,43 @@ async function pollCloneProgress(taskId, progressEl, btn) {
     return;
   }
   setTimeout(() => pollCloneProgress(taskId, progressEl, btn), 2000);
+}
+
+async function showDeleteVoicePrompt() {
+  const box = document.getElementById("engineChoice");
+  box.classList.remove("hidden");
+  const res = await fetch(`${API}/voices?token=${encodeURIComponent(TOKEN)}`);
+  const data = await res.json();
+  const voices = data.voices || [];
+  box.innerHTML = `
+    <p class="hint" style="margin-top:10px;">Naya clone banane ke liye pehle koi purani voice delete karo:</p>
+    ${voices.map((v) => `
+      <div class="engine-row">
+        <span class="engine-name">${v.name}</span>
+        <button class="small" onclick="deleteVoiceFromModal('${v.id}', '${v.name.replace(/'/g, "\\'")}', this)">Delete</button>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function deleteVoiceFromModal(voiceRefId, name, btnEl) {
+  btnEl.disabled = true;
+  btnEl.textContent = "Deleting...";
+  try {
+    const res = await fetch(`${API}/voices/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: TOKEN, voice_ref_id: voiceRefId }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || "Delete nahi ho paya."); btnEl.disabled = false; btnEl.textContent = "Delete"; return; }
+    await loadVoices();
+    document.getElementById("engineChoice").innerHTML = `<p class="hint" style="color:#4ade80;">✓ Delete ho gayi — ab dobara 'Clone' dabao.</p>`;
+  } catch (e) {
+    alert("Server se connect nahi ho paya.");
+    btnEl.disabled = false;
+    btnEl.textContent = "Delete";
+  }
 }
 
 function renderEngineChoice(result) {

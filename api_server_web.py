@@ -398,7 +398,14 @@ async def _run_clone(task_id: str, user_id: str, cookie_string: str, name: str, 
         CLONE_TASKS[task_id]["result"] = {"voice_id": result["voice_id"], "engines": result["engines"], "name": name}
     except Exception as e:
         CLONE_TASKS[task_id]["status"] = "failed"
-        CLONE_TASKS[task_id]["error"] = str(e)
+        # ApiError ka .body mein HeyGen ka ASLI response hota hai (error_message/
+        # error_code) — str(e) sirf "status=400" dikhाta hai, asli wajah nahi.
+        # Isko include karna zaroori hai, warna hum blind debug karte reh jaate.
+        error_detail = str(e)
+        if hasattr(e, "body") and e.body:
+            error_detail = f"{error_detail} — HeyGen response: {e.body}"
+        CLONE_TASKS[task_id]["error"] = error_detail
+        print(f"[voice-clone-fail] task {task_id}: {error_detail}")
         if session:
             await session.stop()   # sirf error pe band karo — success pe zinda rakhni hai
     finally:

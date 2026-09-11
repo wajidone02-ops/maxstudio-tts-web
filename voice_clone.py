@@ -17,8 +17,20 @@ import mimetypes
 from api_client import browser_fetch, s3_put_upload, ApiError
 
 
+class VoiceLimitError(Exception):
+    """HeyGen account ki voice-clone limit khatam — user ko delete-prompt
+    dikhana hai, generic-fail nahi."""
+    pass
+
+
 POLL_INTERVAL = 5
 MAX_WAIT = 300  # voice cloning mein time lag sakta hai, 5 min tak wait
+
+
+async def delete_voice(page, voice_id: str):
+    """HAR-verified: POST /v1/pacific/voice.delete — HeyGen account se voice
+    permanently delete karta hai."""
+    await browser_fetch(page, "POST", "/v1/pacific/voice.delete", json_body={"voice_id": voice_id})
 
 
 async def clone_voice_from_audio(
@@ -55,19 +67,31 @@ async def clone_voice_from_audio(
 
     # Step 3: clone job trigger karo (verified via HAR: enable_source_review bhi chahiye)
     await _status("Voice clone shuru ho rahi hai...")
-    create_data = await browser_fetch(
-        page, "POST", "/v2/voice/voice_clone/create",
-        json_body={
-            "file_url": file_url,
-            "voice_name": voice_name,
-            "language": language,
-            "is_video": False,
-            "request_source": "IVC",
-            "remove_background_noise": remove_background_noise,
-            "normalize_volume": False,
-            "enable_source_review": False,
-        },
-    )
+    try:
+        create_data = await browser_fetch(
+            page, "POST", "/v2/voice/voice_clone/create",
+            json_body={
+                "file_url": file_url,
+                "voice_name": voice_name,
+                "language": language,
+                "is_video": False,
+                "request_source": "IVC",
+                "remove_background_noise": remove_background_noise,
+                "normalize_volume": False,
+                "enable_source_review": False,
+            },
+        )
+    except ApiError as e:
+        # HeyGen ka voice-clone-limit error (account-specific — kuch accounts
+        # unlimited dete hain, kuch (khaaskar recycled/flagged) sirf 2-3 tak
+        # limit ho jaate hain). Verified real error format: code 400834.
+        body_str = str(e.body) if e.body else ""
+        if "400834" in body_str or "includes" in body_str.lower() and "voice clone" in body_str.lower():
+            raise VoiceLimitError(
+                "Is HeyGen account ki voice-clone limit khatam ho gayi hai — "
+                "pehle koi purani voice delete karo, phir naya clone karo."
+            )
+        raise
     job_id = create_data["job_id"]
 
     # Step 4: status poll — voice_id CONFIRM karo

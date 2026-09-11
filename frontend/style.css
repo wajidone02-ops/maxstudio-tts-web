@@ -37,8 +37,13 @@ button.secondary:hover { background: #444; }
 .voice-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .voice-chip {
   background: #262629; border: 1px solid #3a3a3d; border-radius: 20px;
-  padding: 6px 14px; font-size: 13px; color: #ccc;
+  padding: 6px 14px; font-size: 13px; color: #ccc; display: inline-flex; align-items: center; gap: 6px;
 }
+.voice-delete-btn {
+  width: auto; background: transparent; color: #888; border: none; padding: 0 2px;
+  font-size: 13px; cursor: pointer;
+}
+.voice-delete-btn:hover { color: #ff6b6b; }
 
 .progress {
   background: #262629; border-radius: 8px; padding: 10px; font-size: 12px;
